@@ -16,8 +16,8 @@ from django.utils.timezone import is_naive, make_naive
 
 from storages.base import BaseStorage
 from storages.utils import (
-    check_location, get_available_overwrite_name, lookup_env, safe_join,
-    setting,
+    ReadBytesWrapper, check_location, get_available_overwrite_name, lookup_env,
+    safe_join, setting,
 )
 
 try:
@@ -407,7 +407,7 @@ class S3Boto3Storage(BaseStorage):
                                       name)
 
     def _compress_content(self, content):
-        """Gzip a given string content."""
+        """Gzip a given bytes content."""
         content.seek(0)
         zbuf = io.BytesIO()
         #  The GZIP header has a modification time attribute (see http://www.zlib.org/rfc-gzip.html)
@@ -416,7 +416,7 @@ class S3Boto3Storage(BaseStorage):
         #  Fixing the mtime at 0.0 at compression time avoids this problem
         zfile = GzipFile(mode='wb', fileobj=zbuf, mtime=0.0)
         try:
-            zfile.write(force_bytes(content.read()))
+            zfile.write(content.read())
         finally:
             zfile.close()
         zbuf.seek(0)
@@ -439,6 +439,10 @@ class S3Boto3Storage(BaseStorage):
         cleaned_name = self._clean_name(name)
         name = self._normalize_name(cleaned_name)
         params = self._get_write_parameters(name, content)
+
+        # wrap content so read() always returns bytes. This is required for passing it
+        # to obj.upload_fileobj() or self._compress_content()
+        content = ReadBytesWrapper(content)
 
         if (self.gzip and
                 params['ContentType'] in self.gzip_content_types and
